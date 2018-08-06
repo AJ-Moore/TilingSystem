@@ -26,6 +26,9 @@ namespace TileSystem {
         // Buffer is updated when dirty
         bool isDirty = false;
 
+        // Are we all ready fetching a tile from this chunk? Yeh then id's invalid ( failsafe/ paranoia)
+        bool fetchTileInProgress = false; 
+
         // All the data for tiles within this chunk
         private List<TileDat> tiles = new List<TileDat>();
 
@@ -42,10 +45,14 @@ namespace TileSystem {
 
         public void init() {
 
+            float chunkOrigin = this.chunkSize * 0.5f;
+            float unitScale = this.Parent.getParent().tileUnitSize;
+
             this.mesh = new Mesh();
             this.geometry = new GameObject("TileChunk");
             this.geometry.transform.parent = this.parent.gameObject.transform;
-            this.geometry.transform.position = this.position + (Vector3.one * this.chunkSize * 0.5f);
+            this.geometry.transform.position = this.position + new Vector3(chunkOrigin * unitScale, chunkOrigin* unitScale, 0);
+            this.geometry.transform.localScale = Vector3.one * unitScale;
 
             this.meshRenderer = this.geometry.AddComponent<MeshRenderer>();
             this.meshFilter = this.geometry.AddComponent<MeshFilter>();
@@ -58,7 +65,7 @@ namespace TileSystem {
             for (int y = 0; y < this.chunkSize; ++y) {
                 for (int x = 0; x < this.chunkSize; ++x) {
 
-                    // Create a new voxel
+                    // Create a new tile
                     TileDat tileToAdd = new TileDat();
 
                     // Parents layer parent is the tile map itself, default use first tile in map, which is air! 
@@ -74,6 +81,14 @@ namespace TileSystem {
 
             // updates enture tile layer!
             updateAjacentTiles();
+
+            // Call init on all tiles in  the map!
+            foreach(TileDat Tile in tiles) {
+                foreach(TileBehaviour behaviour in Tile.tile.behaviours) {
+                    behaviour.onInit(Tile);
+                }
+            }
+           
         }
 
         public void update() {
@@ -92,20 +107,23 @@ namespace TileSystem {
             this.mesh = this.geometry.GetComponent<MeshFilter>().mesh;
             this.mesh.Clear();
             renderPass(RenderFlags.DEFAULT);
+
+            // Experimental [:
+            generateColliders(); 
         }
 
         //Block update variables, number of blocks that update per update. 
-        static int blockUpdatesPerCycle = 200;
+        static int blockUpdatesPerCycle = 20;
         int currentBlock = 0;
         float tileUpdateTime = 0;
 
-        // returns true if this chunk has finished updating. >> called by voxel map.
+        // returns true if this chunk has finished updating. >> called by tile map.
         public bool performTileUpdates() {
 
             int start = currentBlock;
 
             // this can be optimised to update a list of tiles to update < todo 
-            for (int i = currentBlock; i < this.tiles.Count && i < start + blockUpdatesPerCycle; ++i) {
+            for (int i = currentBlock; i < this.tiles.Count; ++i) {// && i < start + blockUpdatesPerCycle; ++i) {
 
                 currentBlock++;
 
@@ -114,7 +132,8 @@ namespace TileSystem {
                 }
 
                 foreach (TileBehaviour behaviour in this.tiles[i].tile.behaviours) {
-                    behaviour.blockUpdate(this.tiles[i], tileUpdateTime);
+                    behaviour.onUpdate(this.tiles[i]);
+                    behaviour.onUpdate(this.tiles[i], tileUpdateTime);
                 }
                 
             }
@@ -129,13 +148,25 @@ namespace TileSystem {
 
         }
 
-        // ensure consistency when getting the array position for the voxel.
+        // ensure consistency when getting the array position for the tile.
         public int vectorToArrayPosition(Vector2 Position) {
             return (int)(Position.x + ((float)this.chunkSize * Position.y));
         }
 
-        public TileDat getTileAtPosition(Vector2 Position) {
-            // Get the position in the array of voxels.
+        // because it's faster
+        public int vectorToArrayPosition(float x, float y) {
+            return (int)(x + ((float)this.chunkSize * y));
+        }
+
+        // Overload 2d [][] operator!
+        public TileDat this[int x, int y] {
+            get { return tiles[vectorToArrayPosition(x,y)]; }
+            set { tiles[vectorToArrayPosition(x, y)] = value; }
+        }
+
+
+        public TileDat getTileAtPosition(Vector2 Position, bool makeDirty = false) {
+            // Get the position in the array of tiles.
             int pos = this.vectorToArrayPosition(Position);
 
             bool outsideRange = false;
@@ -146,12 +177,22 @@ namespace TileSystem {
             }
 
             if (pos >= this.tiles.Capacity || pos < 0 || outsideRange) {
-                // return air block, this can/needs be optimised!! < Todo
-                Debug.LogWarning("Could not find tile specified!");
-                TileDat air = new TileDat();
-                air.tile = new Tile();
-                air.flags |= (uint)TilePropType.prop_air;
-                return air;
+
+                // Anti recursion check, catches invalid 'states'
+                if (this.fetchTileInProgress) {
+                    // bail! < TODO return default dat 
+                    TileDat transparent = new TileDat();
+                    transparent.tile = new Tile();
+                    transparent.tile.prop = TilePropType.prop_air;
+                    this.fetchTileInProgress = false;
+                    return transparent;
+                }
+
+                // try and fetch from parent! slow af, mark fetch to handle fail state 
+                this.fetchTileInProgress = true; 
+                return this.parent.getParent().getTileAtPosition((Vector2)this.position + Position, (LayerType)this.parent.LayerType, makeDirty);
+                this.fetchTileInProgress = false;
+
             }
 
             return this.tiles[pos];
@@ -168,17 +209,34 @@ namespace TileSystem {
             }
 
             if (pos >= this.tiles.Capacity || pos < 0 || outsideRange) {
-                //Debug.LogError("Unable to set voxel at position specified");
+                // Anti recursion check, catches invalid 'states'
+                if (this.fetchTileInProgress) {
+                    // bail! < do nothing
+                    return;
+                }
+
+                this.fetchTileInProgress = true;
+                this.parent.getParent().setTile((Vector2)this.position + Position, Tile);
+                this.fetchTileInProgress = false;
                 return;
             }
 
-            // Get the voxel data object.
+            // Call on destroy for behaviours
+            foreach (TileBehaviour behaviour in this.tiles[pos].tile.behaviours) {
+                behaviour.onDestroy(this.tiles[pos]);
+            }
+
+            // Get the tile data object.
             TileDat tileData = this.tiles[pos];
             tileData.flags = 0;
             tileData.tile = Tile;
 
             updateAjacentTiles(Position);
 
+            // Call on init for behaviours
+            foreach (TileBehaviour behaviour in Tile.behaviours) {
+                behaviour.onInit(tileData);
+            }
 
             // set the buffer dirty.
             this.isDirty = true;
@@ -195,11 +253,11 @@ namespace TileSystem {
         void updateAjacentTiles(Vector2 Position) {
 
             // Optimise this don't do a parent fetch if we know it is in bounds todo < will make call alot faster most the time 
-            TileDat current = this.parent.getParent().getTileAtPosition((Vector2)this.position + Position, (LayerType)this.parent.LayerType, false );
-            TileDat up = this.parent.getParent().getTileAtPosition((Vector2)this.position + Position + Vector2.up, (LayerType)this.parent.LayerType, false);
-            TileDat down = this.parent.getParent().getTileAtPosition((Vector2)this.position + Position - Vector2.up, (LayerType)this.parent.LayerType, false);
-            TileDat right = this.parent.getParent().getTileAtPosition((Vector2)this.position + Position + Vector2.right, (LayerType)this.parent.LayerType, false);
-            TileDat left = this.parent.getParent().getTileAtPosition((Vector2)this.position + Position - Vector2.right, (LayerType)this.parent.LayerType, false);
+            TileDat current = this.getTileAtPosition( Position);
+            TileDat up = this.getTileAtPosition(Position + Vector2.up);
+            TileDat down = this.getTileAtPosition(Position - Vector2.up);
+            TileDat right = this.getTileAtPosition(Position + Vector2.right);
+            TileDat left = this.getTileAtPosition(Position - Vector2.right);
 
             current.left = left;
             current.right = right;
@@ -211,11 +269,53 @@ namespace TileSystem {
             left.right = current;
             right.left = current; 
 
-
         }
 
         public void setDirty(bool dirty = true) {
             this.isDirty = dirty; 
+        }
+
+        // Experimental method for generating colliders using a <something> collider! [:
+        void generateColliders() {
+
+            Vector3[] vertices = this.mesh.vertices;
+
+            // Faster than casting iterate through 
+            for (uint i = 0; i < vertices.Length; i += 6) {
+
+                // Block out a tile
+                EdgeCollider2D edgeCollider = this.geometry.AddComponent<EdgeCollider2D>();
+                Vector2[] edgePoints = new Vector2[8];
+                // Left edge 
+                edgePoints[0].x = vertices[i].x;
+                edgePoints[0].y = vertices[i].y;
+                edgePoints[1].x = vertices[i + 1].x;
+                edgePoints[1].y = vertices[i + 1].y;
+
+                // Top edge
+                edgePoints[2].x = vertices[i + 1].x;
+                edgePoints[2].y = vertices[i + 1].y;
+                edgePoints[3].x = vertices[i + 2].x;
+                edgePoints[3].y = vertices[i + 2].y;
+
+                // Right edge 
+                edgePoints[4].x = vertices[i + 2].x;
+                edgePoints[4].y = vertices[i + 2].y;
+                edgePoints[5].x = vertices[i + 5].x;
+                edgePoints[5].y = vertices[i + 5].y;
+
+                // Bottom edge
+                edgePoints[6].x = vertices[i + 5].x;
+                edgePoints[6].y = vertices[i + 5].y;
+                edgePoints[7].x = vertices[i + 0].x;
+                edgePoints[7].y = vertices[i + 0].y;
+
+                edgeCollider.points = edgePoints;
+
+            }
+
+
+
         }
 
         void renderPass(RenderFlags RenderPass) {
@@ -230,7 +330,6 @@ namespace TileSystem {
             int vertexOffset = 0;
             int chunkOffset = -(int)this.chunkSize / 2;
 
-            // This could be more optimal. 
 
             for (int x = 0; x < this.chunkSize; ++x) {
                 for (int y = 0; y < this.chunkSize; ++y) {
@@ -238,9 +337,9 @@ namespace TileSystem {
                     int z = 0;
 
                     // Tile were rendering 
-                    TileDat tile = this.getTileAtPosition(new Vector2(x, y));
+                    TileDat tile = this[x,y];
 
-                    // DON'T render air
+                    // DON'T render air -> this should be figured out earlier then pushed to be rendered or simplified
                     if (!tile.tile.rendered || tile.tile.prop == TilePropType.prop_air || tile.tile.prop == TilePropType.prop_vacumn) {
                         continue;
                     }
@@ -249,12 +348,12 @@ namespace TileSystem {
                     byte _offset = 0;
 
                     // Back 
-                    vertices.Add(new Vector3(x + chunkOffset + 1, y + chunkOffset, z + 0 + chunkOffset));
-                    vertices.Add(new Vector3(x + chunkOffset + 1, y + chunkOffset + 1, z + 0 + chunkOffset));
-                    vertices.Add(new Vector3(x + chunkOffset, y + chunkOffset + 1, z + 0 + chunkOffset));
-                    vertices.Add(new Vector3(x + chunkOffset + 1, y + chunkOffset, z + 0 + chunkOffset));
-                    vertices.Add(new Vector3(x + chunkOffset, y + chunkOffset + 1, z + 0 + chunkOffset));
-                    vertices.Add(new Vector3(x + chunkOffset, y + chunkOffset, z + 0 + chunkOffset));
+                    vertices.Add(new Vector3(x + chunkOffset, y + chunkOffset, z ));
+                    vertices.Add(new Vector3(x + chunkOffset, y + chunkOffset + 1, z));
+                    vertices.Add(new Vector3(x + chunkOffset + 1, y + chunkOffset + 1, z ));
+                    vertices.Add(new Vector3(x + chunkOffset, y + chunkOffset, z ));
+                    vertices.Add(new Vector3(x + chunkOffset + 1, y + chunkOffset + 1, z ));
+                    vertices.Add(new Vector3(x + chunkOffset + 1, y + chunkOffset, z ));
 
                     uvs.Add(tile.tile.material.textureCoords[0]);
                     uvs.Add(tile.tile.material.textureCoords[1]);
@@ -263,12 +362,12 @@ namespace TileSystem {
                     uvs.Add(tile.tile.material.textureCoords[2]);
                     uvs.Add(tile.tile.material.textureCoords[3]);
 
-                    normals.Add(Vector3.back);
-                    normals.Add(Vector3.back);
-                    normals.Add(Vector3.back);
-                    normals.Add(Vector3.back);
-                    normals.Add(Vector3.back);
-                    normals.Add(Vector3.back);
+                    normals.Add(Vector3.forward);
+                    normals.Add(Vector3.forward);
+                    normals.Add(Vector3.forward);
+                    normals.Add(Vector3.forward);
+                    normals.Add(Vector3.forward);
+                    normals.Add(Vector3.forward);
 
                     _offset += 6;
 
@@ -285,7 +384,8 @@ namespace TileSystem {
 
             this.mesh.vertices = vertices.ToArray();
             this.mesh.uv = uvs.ToArray();
-            this.mesh.triangles = triangles;
+            //this.mesh.triangles = triangles;
+            this.mesh.SetTriangles(triangles, 0, false);
             this.mesh.normals = normals.ToArray();
 
         }

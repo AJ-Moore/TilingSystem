@@ -12,17 +12,29 @@ namespace TileSystem {
 
     public class TileBehaviour : ScriptableObject {
 
+
         /// <summary>
-        /// Called by the tile system every X ticks
+        /// Called when the tile is added to the map!
         /// </summary>
-        /// <param name="Tile"> The Tile it is operating on is passed into the update method. </param>
-        public virtual void blockUpdate(TileDat Tile) { }
+        /// <param name="Tile"></param>
+        public virtual void onInit(TileDat Tile) { }
+
+        /// <summary>
+        /// Called when the tile is removed from the map
+        /// </summary>
+        public virtual void onDestroy (TileDat Tile) { }
 
         /// <summary>
         /// Called by the tile system every X ticks
         /// </summary>
         /// <param name="Tile"> The Tile it is operating on is passed into the update method. </param>
-        public virtual void blockUpdate(TileDat Tile, float fDelta) { }
+        public virtual void onUpdate(TileDat Tile) { }
+
+        /// <summary>
+        /// Called by the tile system every X ticks
+        /// </summary>
+        /// <param name="Tile"> The Tile it is operating on is passed into the update method. </param>
+        public virtual void onUpdate(TileDat Tile, float fDelta) { }
 
         // Examples below havent been thought out and may be subject to change
 

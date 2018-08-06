@@ -28,6 +28,9 @@ namespace TileSystem {
 
         [Tooltip("Mostlly Testing!")]
         public Tile defaultBlock;
+
+        [Tooltip("The size of a tile in world units!")]
+        public float tileUnitSize = 0.25f; 
         
 // Private members -----------------------------------
 
@@ -90,12 +93,20 @@ namespace TileSystem {
 
         // Test generation 
         void generateEnviroment( ) {
-            for (uint x = 0; x < this.dimensions; x+=(uint)Random.Range(1,3)) {
+
+            for (uint x = 0; x < this.dimensions; x++) {
+                for (uint y = 0; y < 5; y++) {
+                    this.setTile(new Vector2(x, y), this.defaultBlock);
+                }
+            }
+
+            // Random tile position!
+            /*for (uint x = 0; x < this.dimensions; x+=(uint)Random.Range(1,3)) {
                 for (uint y = 1; y < this.dimensions; y+=(uint)Random.Range(1, 3)) {
 
                     this.setTile(new Vector2(x, y), this.defaultBlock);
                 }
-            }
+            }*/
         }
 
         public void setTile (Vector2 Position, Tile Tile) {
@@ -107,8 +118,8 @@ namespace TileSystem {
         // returns a reference, get triggers the buffer to be marked as dirty?
         public TileDat getTileAtPosition(Vector2 Position, LayerType layer, bool dirtyBuffer = false) {
             // Work out which chunk the tile resides in, loses float precision however should be caught by out of range guard, regardless. 
-            uint chunkX = (uint)(Position.x / (float)this.chunkSize);
-            uint chunkY = (uint)(Position.y / (float)this.chunkSize);
+            uint chunkX = ((uint)Position.x / this.chunkSize);
+            uint chunkY = ((uint)Position.y / this.chunkSize);
 
             // Optimise precalculate this
             uint _chunkDimensionXZ = this.dimensions / this.chunkSize;
@@ -155,10 +166,8 @@ namespace TileSystem {
 	    // Update is called once per frame
 	    void FixedUpdate () {
 		    foreach (TileLayer layer in this.layers) {
-                //layer.updateChunks();
-                StartCoroutine(layer.updateTiles());
+                layer.updateChunks();
             }
-            this.gameObject.transform.position = Vector3.zero;
 	    }
     }
     

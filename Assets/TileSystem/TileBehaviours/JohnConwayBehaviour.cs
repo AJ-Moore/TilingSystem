@@ -13,29 +13,31 @@ public class JCMeta : TileMeta {
 public class JohnConwayBehaviour : TileBehaviour {
 
     // Tick interval <
-    float lastUpdate = 0;
-    float prevTime = 0;
-    float tick = 0.5f;
-    bool doneUpdate = false;
-    bool updateTick = false; 
+    public float lastUpdate = 0;
+    public float prevTime = 0;
+    public float tick = 0.5f;
+    public bool doneUpdate = false;
+    public bool updateTick = false; 
 
+    public override void onInit(TileDat Tile) {
+        Tile.metaData = new JCMeta();
 
-    public override void blockUpdate(TileDat Tile, float fTime) {
-        //Debug.Log("Behaviour Updated");
-
-        // first update 
         if (Tile.metaData == null) {
-            // random gets added here because maths
-            Tile.metaData = new JCMeta();
-
             lastUpdate = 0;
             prevTime = 0;
-            tick = 0.01f;
+            tick = 0.5f;
             doneUpdate = false;
             updateTick = false;
-
-            return;
         }
+    }
+
+    public override void onDestroy(TileDat Tile) {
+        //Tile.metaData = null;
+    }
+
+
+    public override void onUpdate(TileDat Tile, float fTime) {
+        //Debug.Log("Behaviour Updated");
 
         // Detect new frame 
         if (prevTime != fTime) {
@@ -62,12 +64,13 @@ public class JohnConwayBehaviour : TileBehaviour {
             // update alive state!, do logic next update
             if (updateTick) { 
                 if (meta.diedLastTick) {
-                    map.setTile(Tile.position, map.getTile(0));
+                    // Chunk. set tile is more efficient 
+                    Tile.parent.setTile(Tile.position, map.getTile(0));
                     meta.diedLastTick = false;
                 }
 
                 if (meta.bornLastTick) {
-                    map.setTile(Tile.position, map.getTile(1));
+                    Tile.parent.setTile(Tile.position, map.getTile(1));
                     meta.bornLastTick = false;
                 }
 

@@ -77,6 +77,7 @@ namespace TileSystem {
 
         public TileLayer(uint layerDimensions, uint chunkSize, uint subMeshSize) {
             this.layerDimensions = layerDimensions;
+            this.chunkSize = chunkSize; 
         }
 
         public void init() {
@@ -91,8 +92,8 @@ namespace TileSystem {
                    
 
                     TileChunk chunk = this.addChunk(new TileChunk(this.chunkSize, (uint)subMeshSize));
-                    chunk.position = new Vector3((i * this.chunkSize), 
-                                                 (p * this.chunkSize), 
+                    chunk.position = new Vector3((p * this.chunkSize), 
+                                                 (i * this.chunkSize), 
                                                  (0));
 
                     chunk.init();
@@ -113,15 +114,6 @@ namespace TileSystem {
             foreach (TileChunk chunk in this.chunks) {
                 chunk.update();
                 chunk.performTileUpdates();
-            }
-        }
-
-        public IEnumerator updateTiles() {
-            foreach (TileChunk chunk in this.chunks) {
-                chunk.update();
-                //chunk.performTileUpdates();
-                chunk.performTileUpdates();
-                yield return 0;
             }
         }
 
